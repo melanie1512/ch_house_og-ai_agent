@@ -305,7 +305,7 @@ create_service() {
                     \"CodeConfigurationValues\": {
                         \"Runtime\": \"PYTHON_311\",
                         \"BuildCommand\": \"pip3 install -r requirements.txt\",
-                        \"StartCommand\": \"python3 -m uvicorn main:app --host 0.0.0.0 --port 8000\",
+                        \"StartCommand\": \"/root/.local/bin/uvicorn main:app --host 0.0.0.0 --port 8000\",
                         \"Port\": \"8000\",
                         \"RuntimeEnvironmentVariables\": $(cat "$env_vars_file")
                     }
