@@ -3,19 +3,18 @@ runtime: python311
 
 build:
   commands:
-    pre-build:
-      - pip3 install --upgrade pip
+    # For Python 3.11 we usually don't install deps here
     build:
-      - pip3 install -r requirements.txt
-    post-build:
-      - echo "Build completed successfully"
+      - echo "Build stage (no-op for now)"
 
 run:
   runtime-version: 3.11
+  pre-run:
+    - pip3 install --upgrade pip
+    - pip3 install -r requirements.txt
   command: python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
   network:
     port: 8000
-    env: PORT
   env:
     - name: API_HOST
       value: "0.0.0.0"
