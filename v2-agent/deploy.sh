@@ -304,7 +304,7 @@ create_service() {
                     \"ConfigurationSource\": \"API\",
                     \"CodeConfigurationValues\": {
                         \"Runtime\": \"PYTHON_311\",
-                        \"BuildCommand\": \"python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt && chmod +x start.sh\",
+                        \"BuildCommand\": \"chmod +x start.sh\",
                         \"StartCommand\": \"./start.sh\",
                         \"Port\": \"8000\",
                         \"RuntimeEnvironmentVariables\": $(cat "$env_vars_file")
