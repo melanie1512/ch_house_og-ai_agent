@@ -1,0 +1,65 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BedrockInvokeModel",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-3-*",
+        "arn:aws:bedrock:us-east-1:297231942614:inference-profile/*"
+      ]
+    },
+    {
+      "Sid": "DynamoDBTableAccess",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:297231942614:table/doctores",
+        "arn:aws:dynamodb:us-east-1:297231942614:table/horarios_doctores",
+        "arn:aws:dynamodb:us-east-1:297231942614:table/user_sessions"
+      ]
+    },
+    {
+      "Sid": "DynamoDBIndexAccess",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Query"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:297231942614:table/doctores/index/*",
+        "arn:aws:dynamodb:us-east-1:297231942614:table/horarios_doctores/index/*"
+      ]
+    },
+    {
+      "Sid": "LambdaInvokeFunction",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:InvokeFunction"
+      ],
+      "Resource": [
+        "arn:aws:lambda:us-east-1:297231942614:function:*"
+      ]
+    },
+    {
+      "Sid": "CloudWatchLogsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:297231942614:log-group:/aws/apprunner/*"
+      ]
+    }
+  ]
+}
