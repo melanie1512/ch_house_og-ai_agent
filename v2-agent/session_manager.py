@@ -125,15 +125,15 @@ class SessionManager:
             elif 'triage/interpret' in endpoint:
                 capa = response.get('capa')
                 if capa:
-                    summary_lines.append(f"  Capa de atención: {capa}")
+                    summary_lines.append(f"  Capa de atención clasificada: {capa}")
                 
                 especialidad = response.get('especialidad_sugerida')
                 if especialidad:
-                    summary_lines.append(f"  Especialidad sugerida por triaje: {especialidad}")
+                    summary_lines.append(f"  Especialidad sugerida: {especialidad}")
                 
                 razones = response.get('razones', [])
                 if razones:
-                    summary_lines.append(f"  Razones: {', '.join(razones[:3])}")  # Máximo 3 razones
+                    summary_lines.append(f"  Síntomas/razones identificados: {', '.join(razones)}")
                 
                 accion = response.get('accion_recomendada')
                 if accion:

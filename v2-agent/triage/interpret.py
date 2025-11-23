@@ -69,12 +69,33 @@ def interpret_triage_request(req: TriageRequest) -> TriageResponse:
     
     {conversation_summary}
     
-    IMPORTANTE: 
-    - USA la información del historial para entender mejor el contexto del usuario
-    - Si el usuario ya mencionó síntomas previos, considéralos en tu análisis
-    - Si el usuario está respondiendo a una pregunta previa, interpreta su respuesta en ese contexto
-    - NO repitas preguntas que ya fueron respondidas
-    - Acumula información de síntomas a través de los turnos de conversación
+    ⚠️ REGLAS CRÍTICAS PARA USAR EL HISTORIAL:
+    
+    1. ACUMULACIÓN DE SÍNTOMAS:
+       - DEBES considerar TODOS los síntomas mencionados en el historial + el mensaje actual
+       - Si el historial dice "dolor de cabeza" y ahora dice "fiebre", el usuario tiene AMBOS síntomas
+       - NO ignores síntomas previos solo porque el usuario menciona uno nuevo
+       - Ejemplo:
+         * Turno 1: "me duele la cabeza"
+         * Turno 2: "ahora tengo fiebre"
+         → Análisis debe incluir: dolor de cabeza + fiebre
+    
+    2. REEVALUACIÓN DE CAPA:
+       - Si aparecen síntomas nuevos, REEVALÚA la capa de atención
+       - La combinación de síntomas puede cambiar la severidad
+       - Ejemplo: dolor leve (Capa 1) + dificultad para respirar (Capa 4) = Capa 4
+    
+    3. CONTEXTO TEMPORAL:
+       - Si el usuario menciona duración ("desde hace 3 días"), aplica a todos los síntomas previos
+       - Si dice "ahora también...", está agregando síntomas, no reemplazando
+    
+    4. NO REPITAS PREGUNTAS:
+       - Si ya preguntaste algo y el usuario respondió, NO vuelvas a preguntar
+       - Usa la información que ya tienes
+    
+    5. RAZONES EN EL JSON:
+       - En el campo "razones", incluye TODOS los síntomas acumulados del historial + mensaje actual
+       - Ejemplo: ["dolor de cabeza desde hace 3 días", "fiebre de 38°C", "náuseas"]
     """
     
     # Build RAG context section if available
@@ -327,11 +348,22 @@ def interpret_triage_request(req: TriageRequest) -> TriageResponse:
     NO uses markdown.
 
     ────────────────────────────────────────
+    INSTRUCCIONES FINALES
+    ────────────────────────────────────────
+    
+    1. Lee el HISTORIAL DE CONVERSACIÓN (si existe) para identificar síntomas previos
+    2. Lee el MENSAJE ACTUAL del usuario
+    3. COMBINA todos los síntomas del historial + mensaje actual
+    4. Analiza la COMBINACIÓN COMPLETA de síntomas para clasificar la capa
+    5. En el campo "razones" del JSON, lista TODOS los síntomas acumulados
+    6. Devuelve ÚNICAMENTE el JSON, sin texto adicional
+    
+    ────────────────────────────────────────
 
-    Ahora analiza el mensaje del usuario y devuelve ÚNICAMENTE el JSON.
+    Ahora analiza el mensaje del usuario considerando TODO el contexto previo.
     """
 
-    prompt = prompt_base + f'\n\nMensaje del usuario: "{req.message}"'
+    prompt = prompt_base + f'\n\nMensaje actual del usuario: "{req.message}"'
 
     region = os.getenv("BEDROCK_REGION", "us-east-1")
     model_id = os.getenv("BEDROCK_INFERENCE_PROFILE_ARN") or os.getenv(
