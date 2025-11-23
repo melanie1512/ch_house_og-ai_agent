@@ -1,0 +1,42 @@
+message:
+{
+    "user": 1,
+    "message": "hola, me duele la cabeza desde hace unos días pero hoy está más fuerte. casi ni me puedo mover, que puedo hacer?"
+}
+
+answer:
+{
+    "risk": {
+        "risk_level": "URGENT",
+        "recommended_action": "doctor_within_24h",
+        "reasons": [
+            "Dolor de cabeza intenso e incapacitante",
+            "Dificultad significativa para moverse",
+            "Síntomas progresivos durante varios días",
+            "Limitación de movimiento que sugiere posible condición seria"
+        ]
+    },
+    "reply": "Basándome en los síntomas que ha descrito, le recomiendo buscar atención médica profesional lo antes posible. Aquí hay algunas orientaciones importantes:\n\nPasos recomendados:\n- Programar una consulta médica dentro de las próximas 24 horas\n- Considerar una consulta presencial o por telemedicina\n- Documentar la evolución de sus síntomas para compartir con el profesional de salud\n\nSeñales de alerta que requieren atención inmediata:\n- Si el dolor se vuelve más intenso\n- Si experimenta dificultad para respirar\n- Si su estado general empeora significativamente\n- Si la limitación de movimiento aumenta\n\nConsejos generales:\n- Descansar adecuadamente\n- Mantenerse hidratado\n- Evitar esfuerzos físicos que aumenten su malestar\n- Mantener un registro de la progresión de los síntomas\n\nImportante: Esta orientación es general. Solo un profesional de salud puede realizar una evaluación completa y precisa de su condición.\n\nLe sugiero buscar orientación médica profesional para una valoración adecuada."
+}
+
+----------------
+message:
+{
+    "user": 1,
+    "message": "hola, hace poco me di cuenta que tengo un nuevo lunar en la mano. nunca lo había visto antes y tiene una forma extraña, que debería hacer?"
+}
+
+answer:
+{
+    "risk": {
+        "risk_level": "URGENT",
+        "recommended_action": "doctor_within_24h",
+        "reasons": [
+            "Lunar nuevo con cambios en su forma",
+            "Apariencia inusual del lunar",
+            "Posible signo de lesión dermatológica que requiere evaluación profesional",
+            "Necesidad de descartar cambios potencialmente preocupantes"
+        ]
+    },
+    "reply": "Estimado usuario:\n\nLe recomiendo buscar una consulta médica profesional lo antes posible, preferiblemente dentro de las próximas 24 horas. Es importante que un especialista examine el lunar y evalúe cualquier cambio observado.\n\nConsejos generales:\n- Programar una cita con un dermatólogo o médico de cabecera\n- Documentar los cambios específicos que ha notado en el lunar\n- Llevar un registro fotográfico si es posible para mostrar al profesional\n\nSignos de alerta que requieren atención médica urgente:\n- Cambios rápidos en el tamaño o forma del lunar\n- Aparición de nuevos colores o tonalidades inusuales\n- Sangrado o picazón en la zona\n- Dolor o molestias asociadas\n\nRecuerde: La evaluación profesional es fundamental para descartar cualquier condición que pueda requerir atención médica.\n\nImportante: Esta orientación es general. Solo un profesional de la salud puede realizar un diagnóstico preciso.\n\nLe sugiero mantener la calma y buscar orientación médica especializada."
+}

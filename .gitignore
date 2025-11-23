@@ -1,0 +1,69 @@
+# ─────────────────────────────
+# PYTHON / FASTAPI
+# ─────────────────────────────
+__pycache__/
+.pycache
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.so
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Build / Dist
+build/
+dist/
+*.log
+
+# Cache
+cache/
+pip-cache/
+.pytest_cache/
+
+# ─────────────────────────────
+# ENVIRONMENT FILES (VERY IMPORTANT)
+# ─────────────────────────────
+.env
+.env.*
+*.local
+
+# ─────────────────────────────
+# AWS / CREDENTIALS
+# ─────────────────────────────
+.aws/
+*.pem
+*.key
+
+# ─────────────────────────────
+# EDITOR / IDE
+# ─────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─────────────────────────────
+# NODE / FRONTEND (por si luego integras uno)
+# ─────────────────────────────
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# ─────────────────────────────
+# OS SYSTEM FILES
+# ─────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─────────────────────────────
+# MISC
+# ─────────────────────────────
+*.sqlite3

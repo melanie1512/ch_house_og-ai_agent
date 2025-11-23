@@ -1,0 +1,15 @@
+{
+  "main_complaint": "chest pain",
+  "symptoms": [
+    "chest pain"
+  ],
+  "duration": "a few days",
+  "severity": "severe",
+  "onset": "a few days ago",
+  "age": null,
+  "red_flags": [
+    "worsening chest pain"
+  ],
+  "other_context": "today it's stronger",
+  "language": "es"
+}
