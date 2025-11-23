@@ -97,9 +97,49 @@ class SessionManager:
         
         summary_lines = []
         for i, turn in enumerate(history[-5:], 1):  # Last 5 turns
-            summary_lines.append(f"Turn {i}:")
-            summary_lines.append(f"  User: {turn['message']}")
-            summary_lines.append(f"  Endpoint: {turn['endpoint']}")
+            summary_lines.append(f"Turno {i}:")
+            summary_lines.append(f"  Usuario dijo: {turn['message']}")
+            
+            # Extract key information from response based on endpoint
+            response = turn.get('response', {})
+            endpoint = turn.get('endpoint', '')
+            
+            if 'doctors/interpret' in endpoint:
+                criterios = response.get('criterios', {})
+                if criterios:
+                    if criterios.get('especialidad'):
+                        summary_lines.append(f"  Especialidad mencionada: {criterios['especialidad']}")
+                    if criterios.get('modalidad'):
+                        summary_lines.append(f"  Modalidad: {criterios['modalidad']}")
+                    if criterios.get('fecha'):
+                        summary_lines.append(f"  Fecha solicitada: {criterios['fecha']}")
+                    if criterios.get('distrito'):
+                        summary_lines.append(f"  Distrito: {criterios['distrito']}")
+                    if criterios.get('genero_preferido'):
+                        summary_lines.append(f"  Género preferido: {criterios['genero_preferido']}")
+                
+                pregunta = response.get('pregunta_pendiente')
+                if pregunta:
+                    summary_lines.append(f"  Sistema preguntó: {pregunta}")
+            
+            elif 'triage/interpret' in endpoint:
+                capa = response.get('capa')
+                if capa:
+                    summary_lines.append(f"  Capa de atención: {capa}")
+                
+                especialidad = response.get('especialidad_sugerida')
+                if especialidad:
+                    summary_lines.append(f"  Especialidad sugerida por triaje: {especialidad}")
+                
+                razones = response.get('razones', [])
+                if razones:
+                    summary_lines.append(f"  Razones: {', '.join(razones[:3])}")  # Máximo 3 razones
+                
+                accion = response.get('accion_recomendada')
+                if accion:
+                    summary_lines.append(f"  Acción recomendada: {accion}")
+            
+            summary_lines.append("")  # Blank line between turns
         
         return "\n".join(summary_lines)
     

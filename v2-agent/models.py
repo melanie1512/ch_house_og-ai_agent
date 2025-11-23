@@ -239,6 +239,7 @@ class WorkshopInterpretResponse(BaseModel):
     workshops: List[WorkshopSummary] = []    # Para SEARCH o LIST
     registered_workshop: Optional[WorkshopSummary] = None  # Para REGISTER
     message: str  # mensaje en español que el agente puede usar o resumir
+    rag_documents: List[dict] = []  # Documentos RAG para enriquecer respuesta
 
 
 # ─────────────────────────────────────────

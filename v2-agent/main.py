@@ -247,6 +247,98 @@ def workshops_interpret(req: WorkshopInterpretRequest):
         log_error(request_logger, e, "Failed to process workshop request", {'user_id': req.user_id})
         raise HTTPException(status_code=500, detail=f"Error procesando taller: {str(e)}")
 
+def build_doctors_reply_prompt(response_json: dict) -> str:
+    """
+    response_json = lo que te devolvió el agente doctors/interpret
+    (la clave 'response' del JSON que pegaste).
+    """
+    import json
+
+    # Extraer documentos RAG si están disponibles
+    rag_documents = response_json.get('rag_documents', [])
+    rag_context_section = ""
+    
+    if rag_documents:
+        rag_context_section = "\n\n────────────────────────────────────\n"
+        rag_context_section += "CONTEXTO ADICIONAL DE LA BASE DE CONOCIMIENTO\n"
+        rag_context_section += "────────────────────────────────────\n"
+        rag_context_section += "Tienes acceso a la siguiente información relevante que puedes usar para enriquecer tu respuesta:\n\n"
+        
+        for i, doc in enumerate(rag_documents[:2], 1):  # Máximo 2 documentos
+            content = doc.get('content', '')
+            source = doc.get('source', 'Base de conocimiento')
+            rag_context_section += f"{i}. {content}\n   (Fuente: {source})\n\n"
+        
+        rag_context_section += "Usa esta información para:\n"
+        rag_context_section += "- Proporcionar contexto médico relevante si aplica\n"
+        rag_context_section += "- Explicar por qué una especialidad es apropiada\n"
+        rag_context_section += "- Dar recomendaciones más informadas\n"
+        rag_context_section += "- Hacer que tu respuesta sea más útil y educativa\n"
+
+    prompt = f"""
+    Eres un asistente de atención al paciente.
+
+    Recibirás un JSON llamado `response` que contiene el resultado estructurado de un
+    agente previo que ya interpretó la intención del usuario y buscó doctores.
+
+    Tu ÚNICA tarea es escribir un MENSAJE EN TEXTO NATURAL para el usuario,
+    en ESPAÑOL latino neutro, usando un tono cercano, claro y profesional.
+
+    No devuelvas JSON, solo texto.
+
+    ────────────────────────────────────
+    JSON DE ENTRADA (response)
+    ────────────────────────────────────
+    {json.dumps(response_json, ensure_ascii=False, indent=2)}
+    {rag_context_section}
+
+    ────────────────────────────────────
+    REGLAS PARA GENERAR EL MENSAJE
+    ────────────────────────────────────
+
+    1. Si `doctores_encontrados` tiene elementos:
+    - Indica cuántos doctores se encontraron (usa len(doctores_encontrados)).
+    - Menciona de 2 a 4 doctores como máximo, en forma de lista o frases cortas.
+        De cada uno, incluye SOLO:
+        - nombre_completo
+        - hospital
+        - distrito
+        - tipo_consulta (presencial / telemedicina)
+    - No inventes datos nuevos.
+
+    2. Si `doctores_encontrados` está vacío:
+    - Explica que por ahora no se encontraron doctores que cumplan todos los criterios.
+    - Propón relajar algún filtro (por ejemplo distrito, horario, modalidad).
+
+    3. Si `requiere_mas_informacion` es true:
+    - Incluye SIEMPRE una o varias preguntas claras basadas en `pregunta_pendiente`.
+    - Puedes reformularla para que suene natural, pero sin cambiar su sentido.
+    - Si hay contexto de la base de conocimiento, úsalo para hacer preguntas más contextualizadas
+    - Ejemplo: "¿Prefieres consulta presencial o virtual? ¿En qué distrito te gustaría la consulta? ¿Para qué día deseas tu cita?"
+
+    4. Si `requiere_mas_informacion` es false:
+    - No pidas más datos, enfócate en ofrecer opciones concretas o el siguiente paso.
+    - Si hay contexto de la base de conocimiento, úsalo para enriquecer tu respuesta con información relevante
+
+    5. Mantén el mensaje corto y accionable:
+    - 1–2 párrafos máximo, más una lista con 2–4 doctores si aplica.
+    - Si incluyes información del contexto RAG, hazlo de forma natural y breve (1 oración)
+    - No menciones palabras técnicas como "DynamoDB", "consulta_doctores", "criterios", etc.
+
+    6. Termina siempre con una invitación amable a elegir una opción o responder a las preguntas.
+
+    7. Incluye una breve advertencia al final, por ejemplo:
+    "Recuerda que este asistente no reemplaza una evaluación médica profesional."
+
+    8. Si hay contexto de la base de conocimiento:
+    - Úsalo para proporcionar información adicional relevante
+    - Explica brevemente por qué una especialidad es apropiada si aplica
+    - Ayuda al usuario a entender mejor su situación
+    - Mantén la información médica simple y accesible
+
+    Ahora genera el MENSAJE para el usuario, en texto plano.
+    """
+    return prompt
 
 def generate_natural_language_response(endpoint: str, response_data: dict, user_message: str) -> str:
     """
@@ -267,85 +359,88 @@ def generate_natural_language_response(endpoint: str, response_data: dict, user_
         razones = response_data.get('razones', [])
         accion = response_data.get('accion_recomendada')
         derivar_a = response_data.get('derivar_a')
+        rag_documents = response_data.get('rag_documents', [])
+        
+        # Formatear contexto RAG si está disponible
+        rag_context_section = ""
+        if rag_documents:
+            rag_context_section = "\n\nContexto médico adicional de la base de conocimiento:\n"
+            for i, doc in enumerate(rag_documents[:2], 1):  # Usar máximo 2 documentos
+                content = doc.get('content', '')[:300]  # Limitar a 300 caracteres
+                rag_context_section += f"- {content}...\n"
         
         prompt = f"""Eres un asistente de salud empático y profesional. Genera una respuesta en lenguaje natural 
-para el usuario basándote en el siguiente análisis de triaje:
+        para el usuario basándote en el siguiente análisis de triaje:
 
-Mensaje del usuario: "{user_message}"
+        Mensaje del usuario: "{user_message}"
 
-Análisis de triaje:
-- Nivel de atención (Capa): {capa}
-- Especialidad sugerida: {especialidad or 'No especificada'}
-- Razones: {', '.join(razones) if razones else 'No especificadas'}
-- Acción recomendada: {accion}
-- Derivar a: {derivar_a or 'Ninguno'}
+        Análisis de triaje:
+        - Nivel de atención (Capa): {capa}
+        - Especialidad sugerida: {especialidad or 'No especificada'}
+        - Razones: {', '.join(razones) if razones else 'No especificadas'}
+        - Acción recomendada: {accion}
+        - Derivar a: {derivar_a or 'Ninguno'}
+        {rag_context_section}
 
-Genera una respuesta que:
-1. Sea empática y tranquilizadora
-2. Explique el nivel de atención recomendado de forma clara
-3. Si hay especialidad sugerida, menciónala
-4. Indique los próximos pasos de forma clara
-5. Si se recomienda agendar cita, ofrece ayuda para hacerlo
-6. Sea concisa (máximo 3-4 oraciones)
-7. Use un tono profesional pero cercano
+        Genera una respuesta que:
+        1. Sea empática y tranquilizadora
+        2. Explique el nivel de atención recomendado de forma clara
+        3. Si hay especialidad sugerida, menciónala y explica brevemente por qué es apropiada
+        4. Si hay contexto médico de la base de conocimiento, úsalo para:
+           - Explicar por qué ciertos síntomas requieren atención urgente
+           - Proporcionar contexto sobre la especialidad recomendada
+           - Ayudar al usuario a entender mejor su situación
+           - Mantener la información médica simple y accesible
+        5. Indique los próximos pasos de forma clara
+        6. Si se recomienda agendar cita, ofrece ayuda para hacerlo
+        7. Sea concisa (máximo 4-5 oraciones)
+        8. Use un tono profesional pero cercano
+        9. Si es Capa 4 (emergencia), enfatiza la urgencia de forma clara pero sin alarmar innecesariamente
 
-Responde SOLO con el mensaje para el usuario, sin formato adicional."""
+        Responde SOLO con el mensaje para el usuario, sin formato adicional."""
 
     elif endpoint == "doctors/interpret":
-        accion = response_data.get('accion')
-        criterios = response_data.get('criterios', {})
-        doctores = response_data.get('doctores_encontrados', [])
-        requiere_info = response_data.get('requiere_mas_informacion', False)
-        pregunta = response_data.get('pregunta_pendiente')
-        
-        prompt = f"""Eres un asistente de salud que ayuda a agendar citas médicas. Genera una respuesta en lenguaje natural 
-para el usuario basándote en el siguiente análisis:
-
-Mensaje del usuario: "{user_message}"
-
-Análisis:
-- Acción: {accion}
-- Especialidad buscada: {criterios.get('especialidad') or 'No especificada'}
-- Modalidad: {criterios.get('modalidad') or 'No especificada'}
-- Fecha: {criterios.get('fecha') or 'No especificada'}
-- Doctores encontrados: {len(doctores)}
-- Requiere más información: {requiere_info}
-- Pregunta pendiente: {pregunta or 'Ninguna'}
-
-Genera una respuesta que:
-1. Si requiere más información, haz la pregunta pendiente de forma amable
-2. Si encontró doctores, menciona cuántos y ofrece mostrar opciones
-3. Si no encontró doctores, sugiere alternativas (cambiar fecha, modalidad, etc.)
-4. Sea útil y orientada a la acción
-5. Sea concisa (máximo 3-4 oraciones)
-6. Use un tono profesional pero cercano
-
-Responde SOLO con el mensaje para el usuario, sin formato adicional."""
+        prompt = build_doctors_reply_prompt(response_data)
 
     elif endpoint == "workshops/interpret":
         operation = response_data.get('operation')
         workshops = response_data.get('workshops', [])
         registered = response_data.get('registered_workshop')
+        rag_documents = response_data.get('rag_documents', [])
+        
+        # Formatear contexto RAG si está disponible
+        rag_context_section = ""
+        if rag_documents:
+            rag_context_section = "\n\nContexto sobre bienestar de la base de conocimiento:\n"
+            for i, doc in enumerate(rag_documents[:2], 1):  # Usar máximo 2 documentos
+                content = doc.get('content', '')[:300]  # Limitar a 300 caracteres
+                rag_context_section += f"- {content}...\n"
         
         prompt = f"""Eres un asistente de salud que ayuda con talleres de bienestar. Genera una respuesta en lenguaje natural 
-para el usuario basándote en el siguiente análisis:
+        para el usuario basándote en el siguiente análisis:
 
-Mensaje del usuario: "{user_message}"
+        Mensaje del usuario: "{user_message}"
 
-Análisis:
-- Operación: {operation}
-- Talleres encontrados: {len(workshops)}
-- Taller registrado: {registered.get('title') if registered else 'Ninguno'}
+        Análisis:
+        - Operación: {operation}
+        - Talleres encontrados: {len(workshops)}
+        - Taller registrado: {registered.get('title') if registered else 'Ninguno'}
+        {rag_context_section}
 
-Genera una respuesta que:
-1. Si encontró talleres, menciona cuántos y el tema
-2. Si registró en un taller, confirma la inscripción con entusiasmo
-3. Si listó talleres del usuario, resume la información
-4. Sea motivadora y positiva
-5. Sea concisa (máximo 3-4 oraciones)
-6. Use un tono amigable y alentador
+        Genera una respuesta que:
+        1. Si encontró talleres, menciona cuántos y el tema
+        2. Si registró en un taller, confirma la inscripción con entusiasmo
+        3. Si listó talleres del usuario, resume la información
+        4. Si hay contexto de la base de conocimiento, úsalo para:
+           - Explicar los beneficios del taller o tema
+           - Proporcionar información sobre por qué es importante
+           - Motivar al usuario con datos relevantes
+           - Hacer la respuesta más educativa y valiosa
+        5. Sea motivadora y positiva
+        6. Sea concisa (máximo 4-5 oraciones)
+        7. Use un tono amigable y alentador
 
-Responde SOLO con el mensaje para el usuario, sin formato adicional."""
+        Responde SOLO con el mensaje para el usuario, sin formato adicional."""
     
     else:
         return "Gracias por tu mensaje. Estoy procesando tu solicitud."
@@ -533,8 +628,11 @@ def agent_route(req: Request):
             workshops_req = WorkshopInterpretRequest(user_id=req.user_id, message=req.message)
             response = workshops_interpret(workshops_req)
             
+            # Convertir respuesta Pydantic a diccionario para generate_natural_language_response
+            response_dict = response.dict() if hasattr(response, 'dict') else response.model_dump()
+            
             # Generar mensaje en lenguaje natural
-            natural_message = generate_natural_language_response(endpoint, response, user_message)
+            natural_message = generate_natural_language_response(endpoint, response_dict, user_message)
             
             request_logger.info("Agent routing completed successfully", extra={
                 'extra_fields': {'routed_to': endpoint}

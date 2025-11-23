@@ -17,6 +17,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from session_manager import get_session_manager
+from rag_helper import retrieve_context, format_context_for_prompt
 
 
 def interpret_triage_request(req: TriageRequest) -> TriageResponse:
@@ -29,6 +30,82 @@ def interpret_triage_request(req: TriageRequest) -> TriageResponse:
         region_name='us-east-1'
     )
     
+    # Retrieve conversation history from session
+    conversation_summary = ""
+    try:
+        session_manager = get_session_manager()
+        conversation_summary = session_manager.get_conversation_summary(req.user_id)
+        if conversation_summary:
+            print(f"Found conversation history for user {req.user_id} in triage")
+    except Exception as e:
+        print(f"Warning: Could not retrieve conversation history: {str(e)}")
+    
+    # SIEMPRE consultar RAG primero para obtener contexto médico relevante
+    rag_context_str = ""
+    rag_documents = []
+    try:
+        print(f"Consultando RAG para triaje: {req.message[:50]}...")
+        rag_result = retrieve_context(
+            query=req.message,
+            user_id=req.user_id,
+            max_results=3
+        )
+        if rag_result.get('documents'):
+            rag_documents = rag_result['documents']
+            rag_context_str = format_context_for_prompt(rag_documents)
+            print(f"Retrieved {len(rag_documents)} documents from RAG for triage")
+    except Exception as e:
+        print(f"Warning: Could not retrieve RAG context for triage: {str(e)}")
+        # Continuar sin RAG si falla
+    
+    # Build conversation history section
+    history_section = ""
+    if conversation_summary:
+        history_section = f"""
+    ────────────────────────────────────────
+    HISTORIAL DE CONVERSACIÓN RECIENTE
+    ────────────────────────────────────────
+    El usuario ha tenido las siguientes interacciones recientes:
+    
+    {conversation_summary}
+    
+    IMPORTANTE: 
+    - USA la información del historial para entender mejor el contexto del usuario
+    - Si el usuario ya mencionó síntomas previos, considéralos en tu análisis
+    - Si el usuario está respondiendo a una pregunta previa, interpreta su respuesta en ese contexto
+    - NO repitas preguntas que ya fueron respondidas
+    - Acumula información de síntomas a través de los turnos de conversación
+    """
+    
+    # Build RAG context section if available
+    rag_section = ""
+    if rag_context_str:
+        rag_section = f"""
+    ────────────────────────────────────────
+    INFORMACIÓN MÉDICA RELEVANTE DE LA BASE DE CONOCIMIENTO
+    ────────────────────────────────────────
+    {rag_context_str}
+    
+    IMPORTANTE: Esta información está disponible para ayudarte a:
+    - Entender mejor el contexto médico de los síntomas del usuario
+    - Clasificar con más precisión el nivel de atención necesario
+    - Identificar signos de alarma con mayor certeza
+    - Sugerir la especialidad más apropiada
+    
+    Usa esta información para:
+    - Mejorar tu análisis de los síntomas
+    - Identificar patrones de riesgo
+    - Proporcionar razones más fundamentadas en tu clasificación
+    
+    NO uses esta información para:
+    - Diagnosticar enfermedades (solo clasificas nivel de atención)
+    - Prescribir tratamientos
+    - Inventar síntomas que el usuario no mencionó
+    
+    NOTA: Esta información será usada posteriormente para generar respuestas en lenguaje
+    natural más educativas y contextualizadas para el usuario.
+    """
+    
     prompt_base = """
     Eres el Agente de Triaje del sistema de salud. Tu función es analizar los síntomas
     del usuario, clasificar el nivel de atención necesario (Capa 1 a 4) y devolver UNA
@@ -36,6 +113,7 @@ def interpret_triage_request(req: TriageRequest) -> TriageResponse:
 
     NO puedes diagnosticar enfermedades, NO puedes prescribir medicamentos y NO puedes
     inventar causas. Siempre respondes en ESPAÑOL.
+    """ + history_section + rag_section + """
 
     ────────────────────────────────────────
     OBJETIVOS DEL AGENTE
@@ -276,6 +354,9 @@ def interpret_triage_request(req: TriageRequest) -> TriageResponse:
     )
     
     response_body = json.loads(json.loads(response["body"].read())["content"][0]["text"])
+    
+    # Agregar documentos RAG a la respuesta para uso posterior
+    response_body['rag_documents'] = rag_documents
 
     # Save triage result to session for cross-agent context
     try:

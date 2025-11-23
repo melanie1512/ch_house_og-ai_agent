@@ -18,11 +18,38 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from session_manager import get_session_manager
 from doctors.dynamodb_query import ejecutar_consultas_simple
+from rag_helper import retrieve_context, format_context_for_prompt
 
 from datetime import date
 
-def build_prompt(req, triage_context=None, conversation_history=None):
+def build_prompt(req, triage_context=None, conversation_history=None, rag_context=None):
     # TODO: corregir dia_semana
+    
+    # Build RAG context section if available
+    rag_section = ""
+    if rag_context:
+        rag_section = f"""
+    ────────────────────────────────────────
+    INFORMACIÓN RELEVANTE DE LA BASE DE CONOCIMIENTO
+    ────────────────────────────────────────
+    {rag_context}
+    
+    IMPORTANTE: Esta información está disponible para enriquecer tu comprensión del contexto.
+    
+    Usa esta información para:
+    - Hacer preguntas más específicas y contextualizadas cuando necesites más información
+    - Entender mejor el contexto médico o de salud del usuario
+    - Proporcionar información relevante en tus respuestas
+    - Ayudar al usuario a tomar mejores decisiones
+    
+    NO uses esta información para:
+    - Inventar criterios de búsqueda que el usuario no mencionó
+    - Asumir preferencias del usuario sin preguntarle
+    - Generar consultas de DynamoDB con información no confirmada por el usuario
+    
+    NOTA: Esta información será usada posteriormente para generar respuestas en lenguaje
+    natural más ricas y contextualizadas para el usuario.
+    """
     
     # Build context section if triage data is available
     context_section = ""
@@ -61,12 +88,31 @@ def build_prompt(req, triage_context=None, conversation_history=None):
         history_section += conversation_history
         history_section += """
     
-    IMPORTANTE: 
-    - NO repitas preguntas que ya fueron respondidas en el historial
-    - USA la información del historial para completar criterios faltantes
-    - Si el usuario ya especificó modalidad, distrito, fecha, etc., úsalos
-    - Si el usuario dice "no me importa" o "cualquiera", NO vuelvas a preguntar
-    - Respeta las preferencias ya expresadas por el usuario
+    REGLAS CRÍTICAS PARA USAR EL HISTORIAL:
+    
+    1. ACUMULAR CRITERIOS: Debes COMBINAR la información del historial con el mensaje actual.
+       - Si en el historial se mencionó "cardiólogo", y ahora el usuario dice "mañana",
+         debes generar una consulta con AMBOS criterios: especialidad=Cardiología Y fecha=mañana
+    
+    2. NO OLVIDAR INFORMACIÓN PREVIA: La información del historial sigue siendo válida
+       a menos que el usuario la contradiga explícitamente.
+       - Historial: "quiero cita con cardiólogo"
+       - Usuario ahora: "para mañana"
+       - Resultado: especialidad=Cardiología, fecha=mañana (NO preguntar especialidad de nuevo)
+    
+    3. NO REPETIR PREGUNTAS: Si el usuario ya respondió algo, NO vuelvas a preguntarlo.
+       - Si ya dijo la especialidad, NO preguntes "¿con qué especialidad?"
+       - Si ya dijo la fecha, NO preguntes "¿para qué día?"
+    
+    4. DETECTAR RESPUESTAS A PREGUNTAS PREVIAS: Si el sistema preguntó algo y el usuario
+       responde, interpreta la respuesta en el contexto de la pregunta.
+       - Sistema preguntó: "¿Para qué día?"
+       - Usuario responde: "mañana"
+       - Debes interpretar "mañana" como la fecha Y mantener los criterios previos
+    
+    5. PRIORIDAD: Mensaje actual > Historial (solo si hay contradicción explícita)
+       - Si el usuario dice "mejor con un neurólogo", cambia la especialidad
+       - Si el usuario solo agrega información, COMBINA con el historial
     """
     
     prompt_base = """
@@ -79,6 +125,7 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     NO debes sugerir tratamientos.
     NO debes inventar doctores ni datos clínicos.
     Siempre trabajas en ESPAÑOL.
+    {rag_section}
     {context_section}
     {history_section}
 
@@ -152,7 +199,7 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     CÓMO INTERPRETAR EL MENSAJE DEL USUARIO
     ────────────────────────────────────────
 
-    A partir del mensaje del usuario, debes identificar:
+    A partir del mensaje del usuario Y EL HISTORIAL, debes identificar:
 
     1) ACCIÓN (campo "accion"):
     - "buscar"
@@ -162,6 +209,16 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     - "necesita_mas_informacion"
 
     2) CRITERIOS (campo "criterios"):
+    
+    IMPORTANTE: Debes ACUMULAR criterios del historial + mensaje actual.
+    
+    Proceso:
+    a) Extrae criterios del HISTORIAL (especialidad, modalidad, fecha, etc.)
+    b) Extrae criterios del MENSAJE ACTUAL
+    c) COMBINA ambos (mensaje actual sobrescribe solo si hay contradicción)
+    d) Genera consulta con TODOS los criterios acumulados
+    
+    Criterios disponibles:
     - especialidad (ej. "cardiología")
     - subespecialidad (si aplica)
     - genero_preferido ("femenino", "masculino", o null)
@@ -173,9 +230,14 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     - departamento
     - distrito
 
+    Ejemplo de acumulación:
+    - Turno 1: Usuario: "quiero cita con cardiólogo" → especialidad=Cardiología
+    - Turno 2: Usuario: "para mañana" → especialidad=Cardiología (del historial), fecha=mañana (nuevo)
+    - Turno 3: Usuario: "en Lima" → especialidad=Cardiología, fecha=mañana, departamento=Lima
+
     3) Pedir más información ("requiere_mas_informacion": true) cuando la solicitud
     no pueda interpretarse razonablemente sin datos clave:
-    - Sin especialidad  
+    - Sin especialidad (y no está en el historial)
     - Sin preferencia de modalidad cuando es relevante
     - Sin ubicación cuando es necesaria para cita presencial
     - Sin fecha cuando el usuario pide explícitamente una fecha
@@ -209,6 +271,8 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     - Establece `"requiere_mas_informacion": true`.
     - Llena `"pregunta_pendiente"` con una pregunta concreta, clara y necesaria.
     - NO inventes información.
+    - Si tienes información de la base de conocimiento (sección RAG arriba), úsala SOLO
+      para hacer preguntas más contextualizadas, NO para generar consultas.
 
     Ejemplos de preguntas válidas:
 
@@ -217,6 +281,10 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     - "¿En qué distrito te gustaría la consulta?"
     - "¿Te gustaría atenderte por la mañana, tarde o noche?"
     - "¿Para qué día deseas tu cita?"
+
+    Si tienes contexto RAG, puedes enriquecer las preguntas:
+    - "Veo que mencionas [síntoma/condición]. ¿Deseas una cita con [especialidad relacionada]?"
+    - "Para [condición mencionada], normalmente se recomienda [especialidad]. ¿Te gustaría buscar disponibilidad?"
 
     Hasta que no tengas los criterios mínimos, debes devolver:
 
@@ -292,6 +360,9 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     Además de interpretar la intención, DEBES generar las consultas listas para que el backend
     pueda ejecutarlas en DynamoDB.
 
+    IMPORTANTE: Usa TODOS los criterios acumulados (historial + mensaje actual) para generar
+    la consulta más específica posible.
+
     Dependiendo de los criterios, debes generar uno o ambos objetos:
 
     1) "consulta_doctores":
@@ -309,6 +380,12 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     - Para horarios:
     * Siempre consulta por "doctor_id" usando KeyConditionExpression.
     * Filtros de rango horario deben expresarse usando FilterExpression.
+    
+    Ejemplo con acumulación de criterios:
+    - Historial: Usuario mencionó "cardiólogo"
+    - Mensaje actual: "para mañana en Lima"
+    - Criterios acumulados: especialidad=Cardiología, fecha=2025-XX-XX, departamento=Lima
+    - Consulta: Usa especialidad-index CON filtros de fecha y departamento
 
     Ejemplo de formato (NO inventes doctores):
 
@@ -374,14 +451,79 @@ def build_prompt(req, triage_context=None, conversation_history=None):
     safe_prompt = safe_prompt.replace("{{message}}", "{message}")
     safe_prompt = safe_prompt.replace("{{context_section}}", "{context_section}")
     safe_prompt = safe_prompt.replace("{{history_section}}", "{history_section}")
+    safe_prompt = safe_prompt.replace("{{rag_section}}", "{rag_section}")
 
     prompt = safe_prompt.format(
         fecha_actual=fecha_actual, 
         message=req.message,
         context_section=context_section,
-        history_section=history_section
+        history_section=history_section,
+        rag_section=rag_section
     )
 
+    return prompt
+
+
+def build_doctors_reply_prompt(response_json: dict) -> str:
+    """
+    response_json = lo que te devolvió el agente doctors/interpret
+    (la clave 'response' del JSON que pegaste).
+    """
+    import json
+
+    prompt = f"""
+    Eres un asistente de atención al paciente.
+
+    Recibirás un JSON llamado `response` que contiene el resultado estructurado de un
+    agente previo que ya interpretó la intención del usuario y buscó doctores.
+
+    Tu ÚNICA tarea es escribir un MENSAJE EN TEXTO NATURAL para el usuario,
+    en ESPAÑOL latino neutro, usando un tono cercano, claro y profesional.
+
+    No devuelvas JSON, solo texto.
+
+    ────────────────────────────────────
+    JSON DE ENTRADA (response)
+    ────────────────────────────────────
+    {json.dumps(response_json, ensure_ascii=False, indent=2)}
+
+    ────────────────────────────────────
+    REGLAS PARA GENERAR EL MENSAJE
+    ────────────────────────────────────
+
+    1. Si `doctores_encontrados` tiene elementos:
+    - Indica cuántos doctores se encontraron (usa len(doctores_encontrados)).
+    - Menciona de 2 a 4 doctores como máximo, en forma de lista o frases cortas.
+        De cada uno, incluye SOLO:
+        - nombre_completo
+        - hospital
+        - distrito
+        - tipo_consulta (presencial / telemedicina)
+    - No inventes datos nuevos.
+
+    2. Si `doctores_encontrados` está vacío:
+    - Explica que por ahora no se encontraron doctores que cumplan todos los criterios.
+    - Propón relajar algún filtro (por ejemplo distrito, horario, modalidad).
+
+    3. Si `requiere_mas_informacion` es true:
+    - Incluye SIEMPRE una o varias preguntas claras basadas en `pregunta_pendiente`.
+    - Puedes reformularla para que suene natural, pero sin cambiar su sentido.
+    - Ejemplo: "¿Prefieres consulta presencial o virtual? ¿En qué distrito te gustaría la consulta? ¿Para qué día deseas tu cita?"
+
+    4. Si `requiere_mas_informacion` es false:
+    - No pidas más datos, enfócate en ofrecer opciones concretas o el siguiente paso.
+
+    5. Mantén el mensaje corto y accionable:
+    - 1–2 párrafos máximo, más una lista con 2–4 doctores si aplica.
+    - No menciones palabras técnicas como "DynamoDB", "consulta_doctores", "criterios", etc.
+
+    6. Termina siempre con una invitación amable a elegir una opción o responder a las preguntas.
+
+    7. Incluye una breve advertencia al final, por ejemplo:
+    "Recuerda que este asistente no reemplaza una evaluación médica profesional."
+
+    Ahora genera el MENSAJE para el usuario, en texto plano.
+    """
     return prompt
 
 
@@ -411,7 +553,26 @@ def interpret_appointment_request(req: TriageRequest) -> TriageResponse:
     except Exception as e:
         print(f"Warning: Could not retrieve context: {str(e)}")
 
-    prompt = build_prompt(req, triage_context, conversation_summary)
+    # SIEMPRE consultar RAG primero para obtener contexto relevante
+    rag_context_str = ""
+    rag_documents = []
+    try:
+        print(f"Consultando RAG para el mensaje: {req.message[:50]}...")
+        rag_result = retrieve_context(
+            query=req.message,
+            user_id=req.user_id,
+            max_results=3
+        )
+        if rag_result.get('documents'):
+            rag_documents = rag_result['documents']
+            rag_context_str = format_context_for_prompt(rag_documents)
+            print(f"Retrieved {len(rag_documents)} documents from RAG")
+    except Exception as e:
+        print(f"Warning: Could not retrieve RAG context: {str(e)}")
+        # Continuar sin RAG si falla
+
+    # Llamada a Bedrock con RAG context incluido
+    prompt = build_prompt(req, triage_context, conversation_summary, rag_context_str)
 
     region = os.getenv("BEDROCK_REGION", "us-east-1")
     model_id = os.getenv("BEDROCK_INFERENCE_PROFILE_ARN") or os.getenv(
@@ -434,6 +595,9 @@ def interpret_appointment_request(req: TriageRequest) -> TriageResponse:
     )
     
     response_body = json.loads(json.loads(response["body"].read())["content"][0]["text"])
+    
+    # Agregar documentos RAG a la respuesta para uso posterior
+    response_body['rag_documents'] = rag_documents
 
     # Ejecutar las consultas de DynamoDB si existen
     if response_body.get("consulta_doctores") or response_body.get("consulta_horarios"):
