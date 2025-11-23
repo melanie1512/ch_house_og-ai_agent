@@ -210,6 +210,14 @@ EOF
   "ENVIRONMENT": "$environment"
 EOF
     
+    # Add ALLOWED_ORIGINS if set
+    if [ -n "$ALLOWED_ORIGINS" ]; then
+        cat >> "$temp_file" << EOF
+,
+  "ALLOWED_ORIGINS": "$ALLOWED_ORIGINS"
+EOF
+    fi
+    
     # Add LAMBDA_FUNCTION_ARN if set
     if [ -n "$LAMBDA_FUNCTION_ARN" ]; then
         cat >> "$temp_file" << EOF
@@ -275,7 +283,7 @@ create_service() {
     print_info "Repository: https://github.com/melanie1512/ch_house_og-ai_agent.git"
     print_info "Branch: main"
     print_info "Source directory: v2-agent"
-    print_info "Using apprunner.yaml from repository"
+    print_info "Using API configuration with environment variables"
     
     # Create the service using AWS CLI
     local service_arn=$(aws apprunner create-service \
@@ -293,7 +301,14 @@ create_service() {
                 },
                 \"SourceDirectory\": \"v2-agent\",
                 \"CodeConfiguration\": {
-                    \"ConfigurationSource\": \"REPOSITORY\"
+                    \"ConfigurationSource\": \"API\",
+                    \"CodeConfigurationValues\": {
+                        \"Runtime\": \"PYTHON_311\",
+                        \"BuildCommand\": \"pip3 install -r requirements.txt\",
+                        \"StartCommand\": \"python3 -m uvicorn main:app --host 0.0.0.0 --port 8000\",
+                        \"Port\": \"8000\",
+                        \"RuntimeEnvironmentVariables\": $(cat "$env_vars_file")
+                    }
                 }
             }
         }" \

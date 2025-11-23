@@ -14,6 +14,9 @@ import json
 import datetime
 import csv
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from session_manager import get_session_manager
 
 
 def interpret_triage_request(req: TriageRequest) -> TriageResponse:
@@ -273,5 +276,21 @@ def interpret_triage_request(req: TriageRequest) -> TriageResponse:
     )
     
     response_body = json.loads(json.loads(response["body"].read())["content"][0]["text"])
+
+    # Save triage result to session for cross-agent context
+    try:
+        session_manager = get_session_manager()
+        session_manager.save_triage_result(req.user_id, response_body)
+        
+        # Save this conversation turn
+        session_manager.add_conversation_turn(
+            req.user_id,
+            req.message,
+            response_body,
+            'triage/interpret'
+        )
+    except Exception as e:
+        print(f"Warning: Could not save triage result to session: {str(e)}")
+        # Continue even if session save fails
 
     return response_body    

@@ -14,12 +14,61 @@ import json
 import datetime
 import csv
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from session_manager import get_session_manager
 from doctors.dynamodb_query import ejecutar_consultas_simple
 
 from datetime import date
 
-def build_prompt(req):
+def build_prompt(req, triage_context=None, conversation_history=None):
     # TODO: corregir dia_semana
+    
+    # Build context section if triage data is available
+    context_section = ""
+    if triage_context:
+        especialidad = triage_context.get('especialidad_sugerida')
+        capa = triage_context.get('capa')
+        razones = triage_context.get('razones', [])
+        
+        context_section = f"""
+    ────────────────────────────────────────
+    CONTEXTO DE TRIAJE PREVIO
+    ────────────────────────────────────────
+    El usuario tuvo una consulta de triaje reciente con los siguientes resultados:
+    
+    - Especialidad sugerida: {especialidad or 'No especificada'}
+    - Nivel de atención (Capa): {capa or 'No especificado'}
+    - Razones: {', '.join(razones) if razones else 'No especificadas'}
+    
+    IMPORTANTE: Si el usuario solicita una cita sin especificar especialidad,
+    DEBES usar la especialidad sugerida del triaje ({especialidad}) como criterio
+    de búsqueda predeterminado.
+    
+    Si el usuario menciona una especialidad diferente, usa la que mencione.
+    """
+    
+    # Build conversation history section
+    history_section = ""
+    if conversation_history:
+        history_section = """
+    ────────────────────────────────────────
+    HISTORIAL DE CONVERSACIÓN RECIENTE
+    ────────────────────────────────────────
+    El usuario ha tenido las siguientes interacciones recientes:
+    
+    """
+        history_section += conversation_history
+        history_section += """
+    
+    IMPORTANTE: 
+    - NO repitas preguntas que ya fueron respondidas en el historial
+    - USA la información del historial para completar criterios faltantes
+    - Si el usuario ya especificó modalidad, distrito, fecha, etc., úsalos
+    - Si el usuario dice "no me importa" o "cualquiera", NO vuelvas a preguntar
+    - Respeta las preferencias ya expresadas por el usuario
+    """
+    
     prompt_base = """
     Eres un asistente especializado en interpretar solicitudes de citas médicas.
     Tu única tarea es LEER el mensaje del usuario en lenguaje natural y devolver
@@ -30,6 +79,8 @@ def build_prompt(req):
     NO debes sugerir tratamientos.
     NO debes inventar doctores ni datos clínicos.
     Siempre trabajas en ESPAÑOL.
+    {context_section}
+    {history_section}
 
     ────────────────────────────────────────
     FECHA ACTUAL
@@ -211,6 +262,29 @@ def build_prompt(req):
     "advertencia": "Este asistente no reemplaza una evaluación médica profesional."
     }
 
+     ────────────────────────────────────────
+    REGLA DE FLEXIBILIDAD EN LOS FILTROS
+    ────────────────────────────────────────
+
+    IMPORTANTE:
+    NO todos los filtros son obligatorios para generar una consulta válida.
+
+    Puedes generar una consulta DynamoDB aunque falten varios criterios,
+    siempre y cuando exista al menos UN criterio que permita iniciar la búsqueda.
+
+    Ejemplos:
+    - Si se conoce solo la especialidad → genera consulta por especialidad.
+    - Si se conoce solo el distrito → genera consulta por distrito.
+    - Si se conoce solo la modalidad → no hay índice para modalidad, pero IGUAL genera scan.
+    - Si se conoce solo el doctor_id → genera consulta de horarios.
+    - Si no se conoce la fecha exacta pero sí el día de la semana → usa ese filtro.
+    - Si no existe GSI para un campo → genera scan y NO inventes índices.
+
+    En resumen:
+    **NO rechaces la consulta solo porque falte información.  
+    Usa lo que sí esté disponible.  
+    Y si falta algo crítico para garantizar la mejor recomendación, pregunta.**
+
     ────────────────────────────────────────
     GENERACIÓN DE CONSULTA PARA DYNAMODB
     ────────────────────────────────────────
@@ -298,8 +372,15 @@ def build_prompt(req):
 
     safe_prompt = safe_prompt.replace("{{fecha_actual}}", "{fecha_actual}")
     safe_prompt = safe_prompt.replace("{{message}}", "{message}")
+    safe_prompt = safe_prompt.replace("{{context_section}}", "{context_section}")
+    safe_prompt = safe_prompt.replace("{{history_section}}", "{history_section}")
 
-    prompt = safe_prompt.format(fecha_actual=fecha_actual, message=req.message)
+    prompt = safe_prompt.format(
+        fecha_actual=fecha_actual, 
+        message=req.message,
+        context_section=context_section,
+        history_section=history_section
+    )
 
     return prompt
 
@@ -314,7 +395,23 @@ def interpret_appointment_request(req: TriageRequest) -> TriageResponse:
         region_name='us-east-1'
     )
 
-    prompt = build_prompt(req)
+    # Retrieve triage context and conversation history from session
+    triage_context = None
+    conversation_summary = ""
+    try:
+        session_manager = get_session_manager()
+        triage_context = session_manager.get_triage_context(req.user_id)
+        if triage_context:
+            print(f"Found triage context for user {req.user_id}: {triage_context.get('especialidad_sugerida')}")
+        
+        # Get conversation history
+        conversation_summary = session_manager.get_conversation_summary(req.user_id)
+        if conversation_summary:
+            print(f"Found conversation history for user {req.user_id}")
+    except Exception as e:
+        print(f"Warning: Could not retrieve context: {str(e)}")
+
+    prompt = build_prompt(req, triage_context, conversation_summary)
 
     region = os.getenv("BEDROCK_REGION", "us-east-1")
     model_id = os.getenv("BEDROCK_INFERENCE_PROFILE_ARN") or os.getenv(
@@ -352,5 +449,22 @@ def interpret_appointment_request(req: TriageRequest) -> TriageResponse:
             # Continuar sin resultados si hay error
             response_body["doctores_encontrados"] = []
             response_body["horarios_disponibles"] = []
+
+    # Update session to track last endpoint and save conversation turn
+    try:
+        session_manager = get_session_manager()
+        session_manager.update_session(req.user_id, {
+            'last_endpoint': 'doctors/interpret'
+        })
+        
+        # Save this conversation turn
+        session_manager.add_conversation_turn(
+            req.user_id,
+            req.message,
+            response_body,
+            'doctors/interpret'
+        )
+    except Exception as e:
+        print(f"Warning: Could not update session: {str(e)}")
 
     return response_body    
