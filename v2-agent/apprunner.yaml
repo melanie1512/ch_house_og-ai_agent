@@ -9,7 +9,7 @@ build:
     post-build:
       - echo "Build completed successfully"
 run:
-  runtime-version: 3.11
+  runtime-version: 3.12
   command: uvicorn main:app --host 0.0.0.0 --port 8000
   network:
     port: 8000
