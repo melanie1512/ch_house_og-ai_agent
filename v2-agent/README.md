@@ -1,13 +1,13 @@
-# Health Assistant API v2 - Bedrock Router
+# Health Assistant API v2 - Sistema Inteligente de Salud
 
-Sistema de asistente de salud con routing inteligente usando AWS Bedrock Agent.
+Sistema de asistente de salud con routing inteligente usando AWS Bedrock (Claude 3) y DynamoDB.
 
 ## Arquitectura
 
-El sistema usa un **agente router principal** que analiza el mensaje del usuario y lo deriva automáticamente a uno de tres servicios:
+El sistema usa un **agente router principal** que analiza el mensaje del usuario y lo deriva automáticamente a uno de tres servicios especializados:
 
-1. **triage/interpret** - Evaluación de síntomas y riesgo médico
-2. **doctors/interpret** - Búsqueda y gestión de citas médicas
+1. **triage/interpret** - Evaluación de síntomas y clasificación de riesgo (Capas 1-4)
+2. **doctors/interpret** - Búsqueda de doctores y gestión de citas médicas con DynamoDB
 3. **workshops/interpret** - Búsqueda y registro en talleres de bienestar
 
 ```
@@ -17,12 +17,21 @@ Usuario → POST /agent/route → AWS Bedrock (Claude 3) → Análisis del mensa
                                     ↓                         ↓                         ↓
                             triage/interpret          doctors/interpret        workshops/interpret
                                     ↓                         ↓                         ↓
-                            Evaluación de riesgo      Gestión de citas         Talleres de bienestar
+                            Evaluación de riesgo      DynamoDB Query           Talleres de bienestar
+                            Capas 1-4                 (doctores + horarios)    
                                     ↓                         ↓                         ↓
                                     └─────────────────────────┴─────────────────────────┘
                                                               ↓
                                                     Respuesta al usuario
 ```
+
+## Componentes AWS
+
+- **AWS Bedrock**: Claude 3 Haiku para interpretación de lenguaje natural
+- **DynamoDB**: 
+  - Tabla `doctores`: Información de médicos (especialidad, ubicación, experiencia)
+  - Tabla `horarios_doctores`: Disponibilidad de citas por doctor
+- **IAM**: Permisos para Bedrock y DynamoDB
 
 ## Endpoints
 
@@ -70,77 +79,31 @@ POST /doctors/interpret
 POST /workshops/interpret
 ```
 
-## Configuración
+## Setup Completo
 
-1. Copiar `.env.example` a `.env`:
-```bash
-cp .env.example .env
-```
+### 1. Configurar Credenciales AWS
 
-2. Configurar credenciales de AWS en `.env`:
-```
+Configurar en `.env`:
+```env
 AWS_REGION=us-east-1
 AWS_ACCESS_KEY_ID=tu_access_key
 AWS_SECRET_ACCESS_KEY=tu_secret_key
+BEDROCK_MODEL=us.anthropic.claude-3-haiku-20240307-v1:0
 ```
+Poner "us." antes del modelos en BEDROCK_MODEL
 
-3. Instalar dependencias:
+### 2. Instalar Dependencias Python
+
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Ejecutar:
+### 3. Ejecutar la API
+
 ```bash
 uvicorn main:app --reload
 ```
 
-## Requisitos AWS
+La API estará disponible en: `http://localhost:8000`
 
-- Cuenta de AWS con acceso a Bedrock
-- Modelo Claude 3 Sonnet habilitado en tu región
-- Credenciales IAM con permisos para `bedrock:InvokeModel`
-
-## Ejemplos de Uso
-
-### Consulta de síntomas (→ triage)
-```json
-{
-  "user_id": "user123",
-  "message": "Tengo fiebre alta y tos desde ayer"
-}
-```
-
-### Buscar doctor (→ doctors)
-```json
-{
-  "user_id": "user123",
-  "message": "Necesito un cardiólogo para mañana"
-}
-```
-
-### Buscar taller (→ workshops)
-```json
-{
-  "user_id": "user123",
-  "message": "Quiero un taller de manejo del estrés"
-}
-```
-
-## Estructura de Archivos
-
-```
-v2-agent/
-├── main.py                    # FastAPI app principal
-├── models.py                  # Modelos Pydantic
-├── bedrock_agent.py          # Router con Bedrock
-├── config.py                 # Configuración
-├── doctors/
-│   └── interpret.py          # Lógica de citas
-├── workshops/
-│   └── interpret.py          # Lógica de talleres
-└── triage/
-    ├── symptom_extraction.py
-    ├── risk_engine.py
-    ├── response_builder.py
-    └── chat_history.py
-```
+Documentación interactiva: `http://localhost:8000/docs`
